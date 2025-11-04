@@ -1,0 +1,69 @@
+# ===========================
+# Java / Maven Build Outputs
+# ===========================
+target/
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+# ===========================
+# IntelliJ IDEA Files
+# ===========================
+.idea/
+*.iws
+*.iml
+*.ipr
+.idea/modules.xml
+.idea/jarRepositories.xml
+.idea/compiler.xml
+.idea/libraries/
+
+# ===========================
+# Eclipse Files
+# ===========================
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# ===========================
+# NetBeans / Gradle / Build
+# ===========================
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# ===========================
+# VS Code
+# ===========================
+.vscode/
+
+# ===========================
+# macOS / Windows System Files
+# ===========================
+.DS_Store
+Thumbs.db
+
+# ===========================
+# Reinsurance Project Specific
+# ===========================
+
+# Exclude generated debit note files
+resources/output/
+src/main/resources/output/
+
+# Exclude generated Word / PDF notes
+*.docx
+*.pdf
+
+# Exclude Excel backups or temporary files
+~$*.xlsx
+*.log
