@@ -13,24 +13,24 @@ public class BrokerDebitCreditGenerator {
 
     public static void main(String[] args) {
 
-        // ✅ Detect the directory where the program is running (JAR or IntelliJ)
+        // ✅ Detect base directory (works for both IntelliJ and JAR/BAT)
         String basePath = System.getProperty("user.dir");
 
-        // Default paths for JAR/BAT use (same folder as your .bat)
+        // Default locations for packaged use
         String excelFilePath = basePath + File.separator + "resources" + File.separator + "DebitNoteCalculations.xlsx";
-        String templatePath  = basePath + File.separator + "resources" + File.separator + "DebitNoteTemplate.docx";
-        String outputFolder  = basePath + File.separator + "resources" + File.separator + "output" + File.separator;
+        String templatePath = basePath + File.separator + "resources" + File.separator + "DebitNoteTemplate.docx";
+        String outputFolder = basePath + File.separator + "resources" + File.separator + "output" + File.separator;
 
-        // ✅ Fallback for IntelliJ (when files are in src/main/resources)
+        // ✅ Fallback for IntelliJ execution
         File excelFile = new File(excelFilePath);
         if (!excelFile.exists()) {
             excelFilePath = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "DebitNoteCalculations.xlsx";
-            templatePath  = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "DebitNoteTemplate.docx";
-            outputFolder  = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "output" + File.separator;
+            templatePath = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "DebitNoteTemplate.docx";
+            outputFolder = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "output" + File.separator;
         }
 
         System.out.println("==============================================");
-        System.out.println("   Reinsurance Debit Note Generator");
+        System.out.println("   Reinsurance Debit Note Generator v2.1");
         System.out.println("==============================================");
         System.out.println("Excel File: " + excelFilePath);
         System.out.println("Template File: " + templatePath);
@@ -45,7 +45,7 @@ public class BrokerDebitCreditGenerator {
             if (!outDir.exists()) outDir.mkdirs();
 
             DateTimeFormatter df = DateTimeFormatter.ofPattern("dd-MMM-yyyy");
-            int processedCol = 18; // “Processed” column index
+            int processedCol = 21; // ✅ last column (Processed)
 
             for (int r = 1; r <= sheet.getLastRowNum(); r++) {
                 Row row = sheet.getRow(r);
@@ -79,6 +79,7 @@ public class BrokerDebitCreditGenerator {
                 double reinsRate = getDouble(row, 8);
                 double share = getDouble(row, 9);
                 double brokerage = getDouble(row, 10);
+                double cedingCommPct = getDouble(row, 15); // 🆕 Ceding Commission %
 
                 if (SI == 0 || cedentRate == 0 || share == 0) {
                     System.out.println("⚠️ Skipping incomplete row " + r);
@@ -86,23 +87,36 @@ public class BrokerDebitCreditGenerator {
                 }
 
                 // --- Calculations ---
-                double grossPremium = SI * (cedentRate / 100);
-                double sharePremium = grossPremium * (share / 100);
-                double cedingCommission = 0.0;
-                double grossBrokerage = sharePremium * (brokerage / 100);
+                // Cedent side
+                double grossPremiumCedent = SI * (cedentRate / 100);
+                double sharePremiumCedent = grossPremiumCedent * (share / 100);
+
+                // Reinsurer side (use Reinsurance Rate if provided)
+                double effectiveReinsRate = (reinsRate > 0) ? reinsRate : cedentRate;
+                double grossPremiumReins = SI * (effectiveReinsRate / 100);
+                double sharePremiumReins = grossPremiumReins * (share / 100);
+
+                // Common deductions
+                double cedingCommissionAmt = sharePremiumCedent * (cedingCommPct / 100);
+                double grossBrokerage = sharePremiumReins * (brokerage / 100);
                 double netBrokerage = grossBrokerage / 2.0;
-                double netPremiumFromYou = sharePremium;
-                double netPremiumToYou = sharePremium - netBrokerage;
+
+                // Correct accounting logic
+                double netPremiumFromYou = sharePremiumCedent - cedingCommissionAmt; // Debit (Cedent)
+                double netPremiumToYou = sharePremiumReins - netBrokerage - cedingCommissionAmt; // Credit (Reinsurer)
 
                 // --- Write Calculated Values to Excel ---
-                setNumeric(row, 11, grossPremium);
-                setNumeric(row, 12, sharePremium);
-                setNumeric(row, 13, cedingCommission);
-                setNumeric(row, 14, grossBrokerage);
-                setNumeric(row, 15, netBrokerage);
-                setNumeric(row, 16, netPremiumFromYou);
-                setNumeric(row, 17, netPremiumToYou);
-                setString(row, 18, "Yes"); // Mark as processed
+                setNumeric(row, 11, grossPremiumCedent);
+                setNumeric(row, 12, sharePremiumCedent);
+                setNumeric(row, 13, grossPremiumReins);
+                setNumeric(row, 14, sharePremiumReins);
+                setNumeric(row, 15, cedingCommPct);
+                setNumeric(row, 16, cedingCommissionAmt);
+                setNumeric(row, 17, grossBrokerage);
+                setNumeric(row, 18, netBrokerage);
+                setNumeric(row, 19, netPremiumFromYou);
+                setNumeric(row, 20, netPremiumToYou);
+                setString(row, 21, "Yes");
 
                 // --- Generate Debit Note Word ---
                 String safeFileName = debitNoteNo.replaceAll("[^a-zA-Z0-9-_]", "_");
@@ -117,23 +131,21 @@ public class BrokerDebitCreditGenerator {
                         period,
                         SI,
                         cedentRate,
-                        grossPremium,
+                        grossPremiumCedent,
                         share,
-                        sharePremium,
-                        netPremiumFromYou // ✅ last field in template
+                        sharePremiumCedent,
+                        netPremiumFromYou // Debit side
                 );
 
                 System.out.println("✅ Processed and generated Debit Note for: " + debitNoteNo);
             }
 
-            // --- Save Updated Excel ---
+            // Save updated Excel
             try (FileOutputStream fos = new FileOutputStream(excelFilePath)) {
                 wb.write(fos);
             }
 
             System.out.println("\n✅ All Debit Notes Processed and Excel Updated Successfully.");
-
-            // ✅ Auto-open output folder for end-user convenience
             openOutputFolder(outputFolder);
 
         } catch (FileNotFoundException e) {
@@ -147,7 +159,7 @@ public class BrokerDebitCreditGenerator {
     // --- Utility: Check if row is empty ---
     private static boolean isRowEmpty(Row row) {
         if (row == null) return true;
-        for (int c = 0; c <= 10; c++) { // up to “Brokerage (%)”
+        for (int c = 0; c <= 10; c++) {
             Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
             if (cell != null && cell.getCellType() != CellType.BLANK) {
                 if (cell.getCellType() == CellType.STRING && !cell.getStringCellValue().trim().isEmpty())
@@ -159,7 +171,7 @@ public class BrokerDebitCreditGenerator {
         return true;
     }
 
-    // --- Excel Helper Methods ---
+    // --- Excel Helpers ---
     private static String getString(Row row, int idx) {
         Cell c = row.getCell(idx, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
         if (c == null) return "";
@@ -183,20 +195,20 @@ public class BrokerDebitCreditGenerator {
     }
 
     private static void setNumeric(Row row, int idx, double val) {
-        if (idx > 18) return;
+        if (idx > 21) return;
         Cell c = row.getCell(idx);
         if (c == null) c = row.createCell(idx, CellType.NUMERIC);
         c.setCellValue(val);
     }
 
     private static void setString(Row row, int idx, String val) {
-        if (idx > 18) return;
+        if (idx > 21) return;
         Cell c = row.getCell(idx);
         if (c == null) c = row.createCell(idx, CellType.STRING);
         c.setCellValue(val);
     }
 
-    // --- Word File Generator ---
+    // --- Word Template Generator ---
     private static void setCellText(XWPFTable table, int rowIdx, int colIdx, String text) {
         XWPFTableRow row = table.getRow(rowIdx);
         if (row != null && row.getCell(colIdx) != null) {
@@ -243,7 +255,7 @@ public class BrokerDebitCreditGenerator {
         return String.format("%,.2f", val);
     }
 
-    // --- Opens output folder automatically ---
+    // --- Auto open folder ---
     private static void openOutputFolder(String outputFolder) {
         try {
             File folder = new File(outputFolder);
