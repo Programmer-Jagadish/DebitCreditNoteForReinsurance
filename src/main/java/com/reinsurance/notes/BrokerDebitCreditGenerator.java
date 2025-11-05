@@ -71,8 +71,12 @@ public class BrokerDebitCreditGenerator {
                     debitNoteNo = "DN-" + String.format("%03d", r);
                 }
 
+                // Document date logic: if empty, auto-fill with today and write back
                 String docDate = getString(row, 1);
-                if (docDate.isEmpty()) docDate = LocalDate.now().format(df);
+                if (docDate == null || docDate.trim().isEmpty()) {
+                    docDate = LocalDate.now().format(df);
+                    setString(row, 1, docDate); // write back to Excel so user sees it
+                }
 
                 String interest = getString(row, 2);
                 String insured = getString(row, 3);
@@ -153,18 +157,24 @@ public class BrokerDebitCreditGenerator {
                         String linkedDebit = getString(crow, 0);
                         if (!linkedDebit.equalsIgnoreCase(debitNoteNo)) continue; // not for this debit
 
-                        String creditProcessed = getString(crow, 6);
+                        String creditProcessed = getString(crow, 7); // processed is now index 7
                         if (creditProcessed.equalsIgnoreCase("Yes") || creditProcessed.equalsIgnoreCase("Processed")) {
                             System.out.println("⏩ Skipping credit row " + cr + " for " + linkedDebit + " (already processed)");
                             continue;
                         }
 
-                        // read credit row inputs
-                        String reinsurerName = getString(crow, 1);
-                        double reinsurerShare = getDouble(crow, 2); // percent for that reinsurer
-                        double creditRowRate = getDouble(crow, 3); // optional rate per credit row
-                        double creditRowBrokerage = getDouble(crow, 4); // optional brokerage override
-                        double creditRowCedingPct = getDouble(crow, 5); // optional ceding commission%
+                        // read credit row inputs (note: Credit Note No. is at index 1 and is manual)
+                        String creditNoteNo = getString(crow, 1); // user-specified; may be blank
+                        String reinsurerName = getString(crow, 2);
+                        double reinsurerShare = getDouble(crow, 3); // percent for that reinsurer
+                        double creditRowRate = getDouble(crow, 4); // optional rate per credit row
+                        double creditRowBrokerage = getDouble(crow, 5); // optional brokerage override
+                        double creditRowCedingPct = getDouble(crow, 6); // optional ceding commission%
+
+                        // warn if user did not supply Credit Note No.
+                        if (creditNoteNo == null || creditNoteNo.trim().isEmpty()) {
+                            System.out.println("⚠️ No Credit Note No. provided for Debit " + debitNoteNo + " - Reinsurer: " + reinsurerName + ". Using temporary CN for file name only.");
+                        }
 
                         // choose effective values (priority: credit row -> main sheet rates)
                         double effectiveReinsRate = (creditRowRate > 0) ? creditRowRate : ((mainReinsRate > 0) ? mainReinsRate : cedentRate);
@@ -179,22 +189,24 @@ public class BrokerDebitCreditGenerator {
                         double netBrokerageForReinsurer = grossBrokerageForReinsurer / 2.0;
                         double netPayableToReinsurer = sharePremiumForReinsurer - netBrokerageForReinsurer - commissionAmtForReinsurer;
 
-                        // write some calculated outputs back to credit sheet for visibility (cols 7..11)
-                        setNumeric(crow, 7, grossPremiumForReinsurer);       // Fac Premium 100%
-                        setNumeric(crow, 8, sharePremiumForReinsurer);       // Share Premium
-                        setNumeric(crow, 9, commissionAmtForReinsurer);      // Ceding Commission Amount
-                        setNumeric(crow, 10, grossBrokerageForReinsurer);    // Gross Brokerage
-                        setNumeric(crow, 11, netPayableToReinsurer);         // Net Payable
+                        // write some calculated outputs back to credit sheet for visibility (cols 8..12)
+                        setNumeric(crow, 8, grossPremiumForReinsurer);       // Fac Premium 100%
+                        setNumeric(crow, 9, sharePremiumForReinsurer);       // Share Premium
+                        setNumeric(crow, 10, commissionAmtForReinsurer);     // Ceding Commission Amount
+                        setNumeric(crow, 11, grossBrokerageForReinsurer);    // Gross Brokerage
+                        setNumeric(crow, 12, netPayableToReinsurer);         // Net Payable
 
-                        // generate credit note doc
-                        String safeCreditName = ("CreditNote_" + debitNoteNo + "_" + reinsurerName).replaceAll("[^a-zA-Z0-9-_\\.]", "_");
+                        // credit note id for document and file name - prefer user-specified if present
+                        String useCreditNo = (creditNoteNo != null && !creditNoteNo.trim().isEmpty()) ? creditNoteNo : ("CN-" + debitNoteNo + "-" + reinsurerName.replaceAll("[^a-zA-Z0-9]", ""));
+                        String safeCreditName = useCreditNo.replaceAll("[^a-zA-Z0-9-_\\.]", "_");
+
                         try {
                             generateCreditNote(
                                     creditTemplatePath,
                                     outputFolder + safeCreditName + ".docx",
-                                    // template fields
-                                    "CN-" + safeCreditName,                     // Credit Note No (basic unique id)
-                                    LocalDate.now().format(df),                // Document Date
+                                    // use the user-specified CN if present, else generated temporary CN
+                                    useCreditNo,
+                                    docDate,                // use same doc date as main (either from excel or auto-filled)
                                     interest,
                                     insured,
                                     reinsurerName,
@@ -207,9 +219,9 @@ public class BrokerDebitCreditGenerator {
                                     grossBrokerageForReinsurer,
                                     netPayableToReinsurer
                             );
-                            // mark credit row as processed
-                            setString(crow, 6, "Yes");
-                            System.out.println("   ✅ Credit Note generated for " + reinsurerName + " (linked to " + debitNoteNo + ")");
+                            // mark credit row as processed (index 7)
+                            setString(crow, 7, "Yes");
+                            System.out.println("   ✅ Credit Note generated for " + reinsurerName + " (linked to " + debitNoteNo + ") - CN: " + useCreditNo);
                         } catch (Exception ce) {
                             System.err.println("   ❌ Failed to generate credit note for " + reinsurerName + ": " + ce.getMessage());
                             ce.printStackTrace();
