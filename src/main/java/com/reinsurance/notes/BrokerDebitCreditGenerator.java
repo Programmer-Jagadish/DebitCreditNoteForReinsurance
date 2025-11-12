@@ -8,27 +8,26 @@ import org.apache.poi.openxml4j.exceptions.InvalidFormatException;
 import java.io.*;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
+import java.util.Map;
 
 public class BrokerDebitCreditGenerator {
 
     public static void main(String[] args) {
 
-        // ✅ Detect base directory (works for both IntelliJ and JAR/BAT)
         String basePath = System.getProperty("user.dir");
 
-        // Default locations for packaged use
-        String excelFilePath = basePath + File.separator + "resources" + File.separator + "DebitNoteCalculations.xlsx";
-        String templatePath = basePath + File.separator + "resources" + File.separator + "DebitNoteTemplate.docx";
-        String creditTemplatePath = basePath + File.separator + "resources" + File.separator + "CreditNoteTemplate.docx"; // NEW
-        String outputFolder = basePath + File.separator + "resources" + File.separator + "output" + File.separator;
+        String excelFilePath     = basePath + File.separator + "resources" + File.separator + "DebitNoteCalculations.xlsx";
+        String templatePath      = basePath + File.separator + "resources" + File.separator + "DebitNoteTemplate.docx";
+        String creditTemplatePath= basePath + File.separator + "resources" + File.separator + "CreditNoteTemplate.docx";
+        String outputFolder      = basePath + File.separator + "resources" + File.separator + "output" + File.separator;
 
-        // ✅ Fallback for IntelliJ execution (src/main/resources)
         File excelFile = new File(excelFilePath);
         if (!excelFile.exists()) {
-            excelFilePath = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "DebitNoteCalculations.xlsx";
-            templatePath = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "DebitNoteTemplate.docx";
+            excelFilePath      = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "DebitNoteCalculations.xlsx";
+            templatePath       = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "DebitNoteTemplate.docx";
             creditTemplatePath = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "CreditNoteTemplate.docx";
-            outputFolder = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "output" + File.separator;
+            outputFolder       = basePath + File.separator + "src" + File.separator + "main" + File.separator + "resources" + File.separator + "output" + File.separator;
         }
 
         System.out.println("==============================================");
@@ -43,14 +42,14 @@ public class BrokerDebitCreditGenerator {
         try (FileInputStream fis = new FileInputStream(excelFilePath);
              Workbook wb = new XSSFWorkbook(fis)) {
 
-            Sheet mainSheet = wb.getSheetAt(0);
-            Sheet creditSheet = wb.getSheet("CreditNoteDetails"); // may be null if not present
+            Sheet mainSheet   = wb.getSheetAt(0);
+            Sheet creditSheet = wb.getSheet("CreditNoteDetails"); // optional
 
             File outDir = new File(outputFolder);
             if (!outDir.exists()) outDir.mkdirs();
 
             DateTimeFormatter df = DateTimeFormatter.ofPattern("dd-MMM-yyyy");
-            int mainProcessedCol = 21; // existing main sheet processed column index
+            int mainProcessedCol = 21; // unchanged
 
             for (int r = 1; r <= mainSheet.getLastRowNum(); r++) {
                 Row row = mainSheet.getRow(r);
@@ -65,56 +64,51 @@ public class BrokerDebitCreditGenerator {
                     continue;
                 }
 
-                // --- Input Columns from main sheet ---
+                // --- Inputs (main sheet stays index-based as in your code) ---
                 String debitNoteNo = getString(row, 0);
                 if (debitNoteNo == null || debitNoteNo.isEmpty()) {
                     debitNoteNo = "DN-" + String.format("%03d", r);
                 }
 
-                // Document date logic: if empty, auto-fill with today and write back
                 String docDate = getString(row, 1);
                 if (docDate == null || docDate.trim().isEmpty()) {
                     docDate = LocalDate.now().format(df);
-                    setString(row, 1, docDate); // write back to Excel so user sees it
+                    setString(row, 1, docDate); // persist auto-date
                 }
 
-                String interest = getString(row, 2);
-                String insured = getString(row, 3);
-                String defaultReinsurer = getString(row, 4);
-                String period = getString(row, 5);
+                String interest          = getString(row, 2);
+                String insured           = getString(row, 3);
+                String defaultReinsured  = getString(row, 4); // shows as "Reinsured" on debit note
+                String period            = getString(row, 5);
 
-                double SI = getDouble(row, 6);
-                double cedentRate = getDouble(row, 7);
-                double mainReinsRate = getDouble(row, 8);
-                double share = getDouble(row, 9);
-                double brokerage = getDouble(row, 10);
-                double cedingCommPct = getDouble(row, 15); // input ceding commission % in main
+                double SI             = getDouble(row, 6);
+                double cedentRate     = getDouble(row, 7);
+                double mainReinsRate  = getDouble(row, 8);
+                double share          = getDouble(row, 9);
+                double brokerage      = getDouble(row,10);
+                double cedingCommPct  = getDouble(row,15);
 
                 if (SI == 0 || cedentRate == 0 || share == 0) {
                     System.out.println("⚠️ Skipping incomplete main row " + r);
                     continue;
                 }
 
-                // --- Calculations for debit + reinsurer summary ---
-                // Cedent side
-                double grossPremiumCedent = SI * (cedentRate / 100);
-                double sharePremiumCedent = grossPremiumCedent * (share / 100);
+                // --- Calculations (unchanged logic) ---
+                double grossPremiumCedent   = SI * (cedentRate / 100);
+                double sharePremiumCedent   = grossPremiumCedent * (share / 100);
 
-                // Reinsurer side (summary using mainReinsRate if present, else cedentRate)
                 double effectiveReinsRateMain = (mainReinsRate > 0) ? mainReinsRate : cedentRate;
-                double grossPremiumReinsMain = SI * (effectiveReinsRateMain / 100);
-                double sharePremiumReinsMain = grossPremiumReinsMain * (share / 100);
+                double grossPremiumReinsMain  = SI * (effectiveReinsRateMain / 100);
+                double sharePremiumReinsMain  = grossPremiumReinsMain * (share / 100);
 
-                // Common deductions (summary)
                 double cedingCommissionAmtMain = sharePremiumCedent * (cedingCommPct / 100);
-                double grossBrokerageMain = sharePremiumReinsMain * (brokerage / 100);
-                double netBrokerageMain = grossBrokerageMain / 2.0;
+                double grossBrokerageMain      = sharePremiumReinsMain * (brokerage / 100);
+                double netBrokerageMain        = grossBrokerageMain / 2.0;
 
-                // Final amounts summary
-                double netPremiumFromYou = sharePremiumCedent - cedingCommissionAmtMain; // debit
-                double netPremiumToYou = sharePremiumReinsMain - netBrokerageMain - cedingCommissionAmtMain; // credit summary
+                double netPremiumFromYou = sharePremiumCedent - cedingCommissionAmtMain;                 // debit (cedent)
+                double netPremiumToYou   = sharePremiumReinsMain - netBrokerageMain - cedingCommissionAmtMain; // credit (summary)
 
-                // --- Write summary back to main sheet (existing indices, unchanged) ---
+                // --- Write back (same column indices) ---
                 setNumeric(row, 11, grossPremiumCedent);
                 setNumeric(row, 12, sharePremiumCedent);
                 setNumeric(row, 13, grossPremiumReinsMain);
@@ -125,9 +119,9 @@ public class BrokerDebitCreditGenerator {
                 setNumeric(row, 18, netBrokerageMain);
                 setNumeric(row, 19, netPremiumFromYou);
                 setNumeric(row, 20, netPremiumToYou);
-                setString(row, mainProcessedCol, "Yes"); // mark main processed
+                setString (row, mainProcessedCol, "Yes");
 
-                // --- Generate Debit Note Word (same as before) ---
+                // --- Generate Debit Note (unchanged) ---
                 String safeFileName = debitNoteNo.replaceAll("[^a-zA-Z0-9-_]", "_");
                 generateDebitNote(
                         templatePath,
@@ -136,7 +130,7 @@ public class BrokerDebitCreditGenerator {
                         docDate,
                         interest,
                         insured,
-                        defaultReinsurer,
+                        defaultReinsured,
                         period,
                         SI,
                         cedentRate,
@@ -145,93 +139,95 @@ public class BrokerDebitCreditGenerator {
                         sharePremiumCedent,
                         netPremiumFromYou
                 );
-
                 System.out.println("✅ Main Debit Note generated: " + debitNoteNo);
 
-                // --- NEW: Generate Credit Notes for each matching row in CreditNoteDetails ---
+                // --- Credit notes (by header names; robust to column order & new 'Reinsurer Address') ---
                 if (creditSheet != null) {
+                    Map<String,Integer> hdr = readHeaderMap(creditSheet);
                     for (int cr = 1; cr <= creditSheet.getLastRowNum(); cr++) {
                         Row crow = creditSheet.getRow(cr);
                         if (crow == null) continue;
 
-                        String linkedDebit = getString(crow, 0);
-                        if (!linkedDebit.equalsIgnoreCase(debitNoteNo)) continue; // not for this debit
+                        String linkedDebit = getStringByHeader(crow, hdr, "Debit Note No.");
+                        if (linkedDebit == null || !linkedDebit.equalsIgnoreCase(debitNoteNo)) continue;
 
-                        String creditProcessed = getString(crow, 7); // processed is now index 7
-                        if (creditProcessed.equalsIgnoreCase("Yes") || creditProcessed.equalsIgnoreCase("Processed")) {
-                            System.out.println("⏩ Skipping credit row " + cr + " for " + linkedDebit + " (already processed)");
+                        String creditProcessed = getStringByHeader(crow, hdr, "Processed");
+                        if ("yes".equalsIgnoreCase(creditProcessed) || "processed".equalsIgnoreCase(creditProcessed)) {
+                            System.out.println("⏩ Skipping credit row " + cr + " (already processed)");
                             continue;
                         }
 
-                        // read credit row inputs (note: Credit Note No. is at index 1 and is manual)
-                        String creditNoteNo = getString(crow, 1); // user-specified; may be blank
-                        String reinsurerName = getString(crow, 2);
-                        double reinsurerShare = getDouble(crow, 3); // percent for that reinsurer
-                        double creditRowRate = getDouble(crow, 4); // optional rate per credit row
-                        double creditRowBrokerage = getDouble(crow, 5); // optional brokerage override
-                        double creditRowCedingPct = getDouble(crow, 6); // optional ceding commission%
+                        String creditNoteNo    = getStringByHeader(crow, hdr, "Credit Note No.");
+                        String reinsuredName   = getStringByHeader(crow, hdr, "Reinsured");          // inside table
+                        String reinsurerName   = getStringByHeader(crow, hdr, "Reinsurer Name");     // To, block
+                        String reinsurerAddr   = getStringByHeader(crow, hdr, "Reinsurer Address");  // To, block (optional)
 
-                        // warn if user did not supply Credit Note No.
-                        if (creditNoteNo == null || creditNoteNo.trim().isEmpty()) {
-                            System.out.println("⚠️ No Credit Note No. provided for Debit " + debitNoteNo + " - Reinsurer: " + reinsurerName + ". Using temporary CN for file name only.");
+                        double reinsurerShare  = getDoubleByHeader(crow, hdr, "Reinsurer Share (%)");
+                        double creditRowRate   = getDoubleByHeader(crow, hdr, "Reinsurance Rate (%)");
+                        double creditRowBrok   = getDoubleByHeader(crow, hdr, "Brokerage (%)");
+                        double creditRowCedPct = getDoubleByHeader(crow, hdr, "Ceding Commission (%)");
+
+                        if (reinsuredName == null || reinsuredName.trim().isEmpty()) {
+                            reinsuredName = defaultReinsured; // fallback
+                        }
+                        if (reinsurerName == null || reinsurerName.trim().isEmpty()) {
+                            reinsurerName = "(Reinsurer)";
                         }
 
-                        // choose effective values (priority: credit row -> main sheet rates)
-                        double effectiveReinsRate = (creditRowRate > 0) ? creditRowRate : ((mainReinsRate > 0) ? mainReinsRate : cedentRate);
-                        double effectiveBrokerage = (creditRowBrokerage > 0) ? creditRowBrokerage : brokerage;
-                        double effectiveCedingPct = (creditRowCedingPct > 0) ? creditRowCedingPct : cedingCommPct;
+                        double effectiveReinsRate = (creditRowRate  > 0) ? creditRowRate  : ((mainReinsRate > 0) ? mainReinsRate : cedentRate);
+                        double effectiveBrokerage = (creditRowBrok  > 0) ? creditRowBrok  : brokerage;
+                        double effectiveCedingPct = (creditRowCedPct> 0) ? creditRowCedPct: cedingCommPct;
 
-                        // calculations per reinsurer
-                        double grossPremiumForReinsurer = SI * (effectiveReinsRate / 100);
-                        double sharePremiumForReinsurer = grossPremiumForReinsurer * (reinsurerShare / 100);
-                        double commissionAmtForReinsurer = sharePremiumForReinsurer * (effectiveCedingPct / 100);
-                        double grossBrokerageForReinsurer = sharePremiumForReinsurer * (effectiveBrokerage / 100);
-                        double netBrokerageForReinsurer = grossBrokerageForReinsurer / 2.0;
-                        double netPayableToReinsurer = sharePremiumForReinsurer - netBrokerageForReinsurer - commissionAmtForReinsurer;
+                        double gpReins    = SI * (effectiveReinsRate / 100);
+                        double spReins    = gpReins * (reinsurerShare / 100);
+                        double ccAmt      = spReins * (effectiveCedingPct / 100);
+                        double gb         = spReins * (effectiveBrokerage / 100);
+                        double nb         = gb / 2.0;
+                        double netPayable = spReins - nb - ccAmt;
 
-                        // write some calculated outputs back to credit sheet for visibility (cols 8..12)
-                        setNumeric(crow, 8, grossPremiumForReinsurer);       // Fac Premium 100%
-                        setNumeric(crow, 9, sharePremiumForReinsurer);       // Share Premium
-                        setNumeric(crow, 10, commissionAmtForReinsurer);     // Ceding Commission Amount
-                        setNumeric(crow, 11, grossBrokerageForReinsurer);    // Gross Brokerage
-                        setNumeric(crow, 12, netPayableToReinsurer);         // Net Payable
+                        // write outputs back if headers exist
+                        writeIfPresent(crow, hdr, "Fac Premium 100%",         gpReins);
+                        writeIfPresent(crow, hdr, "Share Premium",             spReins);
+                        writeIfPresent(crow, hdr, "Ceding Commission (Amount)",ccAmt);
+                        writeIfPresent(crow, hdr, "Gross Brokerage",           gb);
+                        writeIfPresent(crow, hdr, "Net Premium Payable To You",netPayable);
 
-                        // credit note id for document and file name - prefer user-specified if present
-                        String useCreditNo = (creditNoteNo != null && !creditNoteNo.trim().isEmpty()) ? creditNoteNo : ("CN-" + debitNoteNo + "-" + reinsurerName.replaceAll("[^a-zA-Z0-9]", ""));
-                        String safeCreditName = useCreditNo.replaceAll("[^a-zA-Z0-9-_\\.]", "_");
+                        String useCreditNo  = (creditNoteNo != null && !creditNoteNo.trim().isEmpty())
+                                ? creditNoteNo
+                                : ("CN-" + debitNoteNo + "-" + reinsurerName.replaceAll("[^a-zA-Z0-9]", ""));
+                        String safeCredit   = useCreditNo.replaceAll("[^a-zA-Z0-9-_\\.]", "_");
 
                         try {
                             generateCreditNote(
                                     creditTemplatePath,
-                                    outputFolder + safeCreditName + ".docx",
-                                    // use the user-specified CN if present, else generated temporary CN
+                                    outputFolder + safeCredit + ".docx",
                                     useCreditNo,
-                                    docDate,                // use same doc date as main (either from excel or auto-filled)
+                                    docDate,
                                     interest,
                                     insured,
-                                    reinsurerName,
+                                    reinsuredName,    // table: Reinsured
+                                    reinsurerName,    // To, block: name
+                                    reinsurerAddr,    // To, block: address (optional)
                                     period,
                                     SI,
                                     effectiveReinsRate,
-                                    grossPremiumForReinsurer,
+                                    gpReins,
                                     reinsurerShare,
-                                    sharePremiumForReinsurer,
-                                    grossBrokerageForReinsurer,
-                                    netPayableToReinsurer
+                                    spReins,
+                                    gb,
+                                    netPayable
                             );
-                            // mark credit row as processed (index 7)
-                            setString(crow, 7, "Yes");
+                            // mark processed if header exists
+                            writeIfPresent(crow, hdr, "Processed", "Yes");
                             System.out.println("   ✅ Credit Note generated for " + reinsurerName + " (linked to " + debitNoteNo + ") - CN: " + useCreditNo);
                         } catch (Exception ce) {
                             System.err.println("   ❌ Failed to generate credit note for " + reinsurerName + ": " + ce.getMessage());
                             ce.printStackTrace();
                         }
-                    } // end credit sheet loop
-                } // if creditSheet != null
+                    }
+                }
+            }
 
-            } // end main sheet loop
-
-            // Save updated Excel (main + credit sheet writes)
             try (FileOutputStream fos = new FileOutputStream(excelFilePath)) {
                 wb.write(fos);
             }
@@ -247,7 +243,39 @@ public class BrokerDebitCreditGenerator {
         }
     }
 
-    // --- Utility: Check if row is empty ---
+    // ---------- Helpers: rows/headers ----------
+
+    private static Map<String,Integer> readHeaderMap(Sheet sheet) {
+        Map<String,Integer> map = new HashMap<>();
+        Row hdr = sheet.getRow(0);
+        if (hdr == null) return map;
+        for (int i = 0; i < hdr.getLastCellNum(); i++) {
+            String key = getString(hdr, i).trim();
+            if (!key.isEmpty()) map.put(key.toLowerCase(), i);
+        }
+        return map;
+    }
+
+    private static String getStringByHeader(Row row, Map<String,Integer> hdr, String name) {
+        Integer idx = hdr.get(name.toLowerCase());
+        return (idx == null) ? "" : getString(row, idx);
+    }
+
+    private static double getDoubleByHeader(Row row, Map<String,Integer> hdr, String name) {
+        Integer idx = hdr.get(name.toLowerCase());
+        return (idx == null) ? 0.0 : getDouble(row, idx);
+    }
+
+    private static void writeIfPresent(Row row, Map<String,Integer> hdr, String name, double val) {
+        Integer idx = hdr.get(name.toLowerCase());
+        if (idx != null) setNumeric(row, idx, val);
+    }
+
+    private static void writeIfPresent(Row row, Map<String,Integer> hdr, String name, String val) {
+        Integer idx = hdr.get(name.toLowerCase());
+        if (idx != null) setString(row, idx, val);
+    }
+
     private static boolean isRowEmpty(Row row) {
         if (row == null) return true;
         for (int c = 0; c <= 10; c++) {
@@ -262,7 +290,8 @@ public class BrokerDebitCreditGenerator {
         return true;
     }
 
-    // --- Excel Helpers ---
+    // ---------- Excel low-level helpers ----------
+
     private static String getString(Row row, int idx) {
         Cell c = row.getCell(idx, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
         if (c == null) return "";
@@ -276,30 +305,28 @@ public class BrokerDebitCreditGenerator {
         if (c == null) return 0.0;
         if (c.getCellType() == CellType.NUMERIC) return c.getNumericCellValue();
         if (c.getCellType() == CellType.STRING) {
-            try {
-                return Double.parseDouble(c.getStringCellValue().replace(",", "").trim());
-            } catch (Exception e) {
-                return 0.0;
-            }
+            try { return Double.parseDouble(c.getStringCellValue().replace(",", "").trim()); }
+            catch (Exception e) { return 0.0; }
         }
         return 0.0;
     }
 
     private static void setNumeric(Row row, int idx, double val) {
-        if (idx > 50) return; // safe guard — we only use small indices
+        if (idx > 200) return;
         Cell c = row.getCell(idx);
         if (c == null) c = row.createCell(idx, CellType.NUMERIC);
         c.setCellValue(val);
     }
 
     private static void setString(Row row, int idx, String val) {
-        if (idx > 50) return;
+        if (idx > 200) return;
         Cell c = row.getCell(idx);
         if (c == null) c = row.createCell(idx, CellType.STRING);
         c.setCellValue(val);
     }
 
-    // --- Word Template Generator for Debit Note (existing) ---
+    // ---------- Word helpers ----------
+
     private static void setCellText(XWPFTable table, int rowIdx, int colIdx, String text) {
         XWPFTableRow row = table.getRow(rowIdx);
         if (row != null && row.getCell(colIdx) != null) {
@@ -342,11 +369,39 @@ public class BrokerDebitCreditGenerator {
         }
     }
 
-    // --- Word Template Generator for Credit Note (NEW) ---
+    // Replace the “To,” block with Name + Address
+    private static void replaceToBlock(XWPFDocument doc, String reinsurerName, String reinsurerAddress) {
+        for (XWPFParagraph para : doc.getParagraphs()) {
+            String text = para.getText();
+            if (text != null && text.trim().toLowerCase().startsWith("to")) {
+                for (int i = para.getRuns().size() - 1; i >= 0; i--) {
+                    para.removeRun(i);
+                }
+                XWPFRun run = para.createRun();
+                run.setText("To,");
+                run.addBreak();
+                if (reinsurerName != null && !reinsurerName.isEmpty()) {
+                    run.setText(reinsurerName);
+                    if (reinsurerAddress != null && !reinsurerAddress.trim().isEmpty()) {
+                        run.addBreak();
+                        // support multi-line address separated by \n
+                        String[] lines = reinsurerAddress.split("\\r?\\n");
+                        for (int i = 0; i < lines.length; i++) {
+                            if (i > 0) run.addBreak();
+                            run.setText(lines[i]);
+                        }
+                    }
+                }
+                return;
+            }
+        }
+    }
+
     private static void generateCreditNote(
             String templatePath, String outputPath,
             String creditNoteNo, String documentDate, String interest,
-            String insured, String reinsurer, String period,
+            String insured, String reinsuredName, String reinsurerName, String reinsurerAddress,
+            String period,
             double sumInsured, double rate, double facPremiumFull,
             double share, double sharePremium, double grossBrokerage, double netPayable)
             throws IOException, InvalidFormatException {
@@ -354,23 +409,24 @@ public class BrokerDebitCreditGenerator {
         try (FileInputStream fis = new FileInputStream(templatePath);
              XWPFDocument doc = new XWPFDocument(fis)) {
 
+            // Update the “To,” block (name + optional address)
+            replaceToBlock(doc, reinsurerName, reinsurerAddress);
+
             XWPFTable table = doc.getTables().get(0);
 
-            // fill template rows according to the structure you provided earlier
             setCellText(table, 0, 2, creditNoteNo);
             setCellText(table, 1, 2, documentDate);
-            // blank row assumed at index 2
             setCellText(table, 3, 2, interest);
             setCellText(table, 4, 2, insured);
-            setCellText(table, 5, 2, reinsurer);
+            setCellText(table, 5, 2, reinsuredName); // Reinsured inside table
             setCellText(table, 6, 2, period);
             setCellText(table, 7, 2, "USD " + format(sumInsured));
             setCellText(table, 8, 2, String.format("%.2f%%", rate));
             setCellText(table, 9, 2, "USD " + format(facPremiumFull));
-            setCellText(table, 10, 2, String.format("%.2f%% of 100%%", share));
-            setCellText(table, 11, 2, "USD " + format(sharePremium));
-            setCellText(table, 12, 2, "USD " + format(grossBrokerage));
-            setCellText(table, 13, 2, "USD " + format(netPayable));
+            setCellText(table,10, 2, String.format("%.2f%% of 100%%", share));
+            setCellText(table,11, 2, "USD " + format(sharePremium));
+            setCellText(table,12, 2, "USD " + format(grossBrokerage));
+            setCellText(table,13, 2, "USD " + format(netPayable));
 
             File outFile = new File(outputPath);
             outFile.getParentFile().mkdirs();
@@ -384,7 +440,6 @@ public class BrokerDebitCreditGenerator {
         return String.format("%,.2f", val);
     }
 
-    // --- Auto open folder ---
     private static void openOutputFolder(String outputFolder) {
         try {
             File folder = new File(outputFolder);
